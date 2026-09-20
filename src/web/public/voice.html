@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <title>Voice bridge</title>
+  <style>
+    :root {
+      --ink: #14171f;
+      --panel: #1c2130;
+      --raise: #262d40;
+      --line: #343d55;
+      --text: #e9ecf5;
+      --muted: #99a3bc;
+      --live: #ff5a4a;
+      --ok: #47d3b0;
+      --warn: #f2c94c;
+      --link: #93a5ff;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--ink); }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--ink);
+      color: var(--text);
+      font: 16px/1.5 "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+    main { max-width: 1040px; margin: 0 auto; padding: 28px 20px 56px; }
+    header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; margin-bottom: 26px; }
+    h1 { margin: 0; font-size: 1.7rem; letter-spacing: -0.01em; }
+    .where { color: var(--muted); }
+    .where b { color: var(--text); font-weight: 600; }
+    .status { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: .9rem; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+    .status[data-kind="ok"] .dot { background: var(--ok); }
+    .status[data-kind="wait"] .dot { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+    .status[data-kind="bad"] .dot { background: var(--live); }
+    .status[data-kind="bad"] #statusText { color: var(--text); }
+    @keyframes pulse { 50% { opacity: .3; } }
+    #statusDetail:empty { display: none; }
+    #retry { padding: 2px 10px; font-size: .85rem; border-radius: 8px; }
+    .lat { padding-left: 8px; border-left: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+    .lat.good { color: var(--ok); }
+    .lat.mid { color: #f2c94c; }
+    .lat.bad { color: var(--live); }
+    .lag { margin: -6px 0 6px; color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
+
+    .grid { display: grid; gap: 22px; grid-template-columns: 1fr; }
+    @media (min-width: 860px) { .grid { grid-template-columns: 1.05fr 1fr; align-items: start; } }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+    h2 { margin: 0 0 14px; font-size: 1.05rem; }
+    .stack { display: grid; gap: 22px; }
+
+    .console { display: grid; justify-items: center; gap: 18px; padding: 10px 0 4px; text-align: center; }
+    .lamp { display: inline-flex; align-items: center; gap: 10px; color: var(--muted); font-weight: 600; }
+    .lamp i { width: 12px; height: 12px; border-radius: 50%; background: var(--raise); border: 1px solid var(--line); }
+    .lamp[data-on="true"] { color: var(--live); }
+    .lamp[data-on="true"] i { background: var(--live); border-color: var(--live); box-shadow: 0 0 14px 2px var(--live); }
+    #talk {
+      width: 184px; height: 184px; border-radius: 50%;
+      border: 4px solid var(--line); background: var(--raise); color: var(--text);
+      font: inherit; font-weight: 700; font-size: 1.05rem; line-height: 1.25; padding: 0 22px;
+      cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none;
+      transition: background .12s, border-color .12s, box-shadow .12s, transform .12s;
+    }
+    #talk:hover { border-color: var(--muted); }
+    #talk.live { background: var(--live); border-color: #ffb2aa; color: #23090a; transform: scale(.97); box-shadow: 0 0 0 10px rgba(255, 90, 74, .22); }
+    #talk:disabled { opacity: .5; cursor: not-allowed; }
+    .meter { display: grid; grid-template-columns: repeat(16, 1fr); gap: 4px; width: min(300px, 100%); height: 14px; }
+    .meter span { background: var(--raise); border-radius: 2px; }
+    .meter span.on { background: var(--ok); }
+    .meter span.on.hot { background: var(--live); }
+    .lock { display: inline-flex; align-items: center; gap: 9px; color: var(--muted); cursor: pointer; }
+    .lock input { width: 18px; height: 18px; accent-color: var(--live); }
+    .hint { margin: 0; color: var(--muted); font-size: .92rem; max-width: 36ch; }
+    kbd { background: var(--raise); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 6px; font: inherit; font-size: .85rem; }
+
+    .speakers { margin: 14px 0 6px; font-weight: 600; overflow-wrap: anywhere; }
+    .speakers.active { color: var(--ok); }
+    #listen[aria-pressed="true"] { border-color: var(--ok); color: var(--ok); }
+
+    .drop {
+      position: relative;
+      display: grid; place-items: center; gap: 4px; text-align: center;
+      border: 2px dashed var(--line); border-radius: 12px; padding: 26px 16px; cursor: pointer; color: var(--muted);
+      transition: border-color .12s, background .12s;
+    }
+    .drop:hover, .drop.over, .drop:focus-within { border-color: var(--link); background: rgba(147, 165, 255, .06); }
+    .drop strong { color: var(--text); }
+    .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .uploads { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+    .uploads li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; font-size: .92rem; }
+    .uploads .name, .queue .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .uploads .msg { color: var(--muted); }
+    .uploads .msg.err { color: var(--live); }
+    .uploads progress { grid-column: 1 / -1; width: 100%; height: 6px; accent-color: var(--link); }
+
+    .now { display: grid; gap: 2px; margin-bottom: 12px; }
+    .now small { color: var(--muted); }
+    .now strong { overflow-wrap: anywhere; }
+    .queue { list-style: decimal inside; margin: 0 0 14px; padding: 0; color: var(--muted); display: grid; gap: 4px; }
+    .queue:empty { display: none; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    button.plain {
+      font: inherit; color: var(--text); background: var(--raise); border: 1px solid var(--line);
+      border-radius: 10px; padding: 8px 16px; cursor: pointer;
+    }
+    button.plain:hover { border-color: var(--muted); }
+    button.plain:disabled { opacity: .45; cursor: not-allowed; }
+    .vol { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; color: var(--muted); }
+    .vol input { width: 130px; accent-color: var(--link); }
+
+    #toasts { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: grid; gap: 8px; width: min(420px, calc(100% - 32px)); z-index: 5; }
+    .toast { background: var(--raise); border: 1px solid var(--live); border-radius: 10px; padding: 10px 14px; font-size: .92rem; }
+    #ended { display: none; margin-bottom: 22px; padding: 14px 18px; border: 1px solid var(--live); border-radius: 12px; background: rgba(255, 90, 74, .08); }
+    body.ended #ended { display: block; }
+    body.ended section { opacity: .45; pointer-events: none; }
+
+    :focus-visible { outline: 3px solid var(--link); outline-offset: 3px; }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Voice bridge</h1>
+      <span class="where">Speaking in <b id="channel">…</b></span>
+      <span class="status" id="status" data-kind="wait"><span class="dot"></span><span id="statusText" role="status">Connecting</span><span id="statusDetail" aria-hidden="true"></span><button class="plain" id="retry" type="button" hidden>Retry now</button><span class="lat" id="latency" hidden></span></span>
+    </header>
+
+    <div id="ended">This session has ended. Run <b>/voice join</b> in Discord to start a new one.</div>
+
+    <div class="grid">
+      <div class="stack">
+      <section aria-labelledby="talkTitle">
+        <h2 id="talkTitle">Talk</h2>
+        <div class="console">
+          <span class="lamp" id="lamp" data-on="false"><i></i><span id="lampText">Mic off</span></span>
+          <button id="talk" type="button" aria-pressed="false">Enable microphone</button>
+          <div class="meter" id="meter" aria-hidden="true"></div>
+          <label class="lock" id="lockWrap" hidden><input type="checkbox" id="lock"> Keep the mic open</label>
+          <p class="hint" id="hint">Your browser will ask for microphone access. Nothing is sent until you hold the button.</p>
+        </div>
+      </section>
+
+      <section aria-labelledby="listenTitle">
+        <h2 id="listenTitle">Listen</h2>
+        <div class="controls">
+          <button class="plain" id="listen" type="button" aria-pressed="false">Start listening</button>
+          <label class="vol">Volume <input type="range" id="listenVol" min="0" max="150" value="100"></label>
+        </div>
+        <p class="speakers" id="speakers">Not listening</p>
+        <p class="lag" id="lag" hidden></p>
+        <p class="hint">Hear the voice channel live in this tab. Use headphones while your mic is on to avoid echo.</p>
+      </section>
+      </div>
+
+      <div class="stack">
+        <section aria-labelledby="uploadTitle">
+          <h2 id="uploadTitle">Play audio</h2>
+          <label class="drop" id="drop">
+            <strong>Choose audio files</strong>
+            <span>or drop them here — voice messages, mp3, wav, ogg, m4a, flac (up to 50 MB each)</span>
+            <input type="file" id="file" multiple accept="audio/*,video/*,.ogg,.opus,.mp3,.wav,.m4a,.aac,.flac">
+          </label>
+          <ul class="uploads" id="uploads"></ul>
+        </section>
+
+        <section aria-labelledby="queueTitle">
+          <h2 id="queueTitle">Up next</h2>
+          <div class="now"><small>Now playing</small><strong id="now">Nothing playing</strong></div>
+          <ol class="queue" id="queue"></ol>
+          <div class="controls">
+            <button class="plain" id="skip" type="button">Skip</button>
+            <button class="plain" id="stop" type="button">Clear queue</button>
+            <label class="vol">Music volume <input type="range" id="volume" min="0" max="100" value="70"></label>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <div id="toasts" aria-live="polite"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  const MAX_MB = 50;
+  const token = location.pathname.split("/")[2];
+  const base = "/voice/" + token;
+  const $ = (id) => document.getElementById(id);
+
+  function toast(message) {
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.textContent = message;
+    $("toasts").appendChild(el);
+    setTimeout(() => el.remove(), 7000);
+  }
+  let ws = null;
+  let retries = 0;
+  let everConnected = false;
+  let sessionEnded = false;
+  let link = "connecting"; // the bot's link to Discord: connecting | ready | reconnecting | disconnected
+  let reconnectTimer = null;
+  let reconnectAt = 0;
+  let awaitingPongSince = 0;
+
+  const PONG_TIMEOUT_MS = 10000;
+  const isOpen = () => ws !== null && ws.readyState === WebSocket.OPEN;
+  const canTalk = () => isOpen() && link === "ready" && !sessionEnded;
+
+  function renderStatus() {
+    let kind = "wait";
+    let text = "Connecting";
+    let detail = "";
+    const secs = reconnectAt ? Math.max(0, Math.ceil((reconnectAt - Date.now()) / 1000)) : 0;
+    const retryIn = secs ? "retry in " + secs + "s" : "";
+
+    if (sessionEnded) {
+      kind = "bad"; text = "Session ended";
+    } else if (!isOpen()) {
+      if (!navigator.onLine) {
+        kind = "bad"; text = "Offline"; detail = retryIn || "no internet connection";
+      } else if (!everConnected && retries === 0) {
+        kind = "wait"; text = "Connecting";
+      } else if (retries >= 3) {
+        kind = "bad"; text = "Disconnected"; detail = retryIn;
+      } else {
+        kind = "wait"; text = "Reconnecting"; detail = retryIn;
+      }
+    } else if (link === "ready") {
+      kind = "ok"; text = "Connected";
+    } else if (link === "disconnected") {
+      kind = "bad"; text = "Disconnected from Discord";
+    } else if (link === "reconnecting") {
+      kind = "wait"; text = "Reconnecting to Discord";
+    } else {
+      kind = "wait"; text = "Connecting to Discord";
+    }
+
+    $("status").dataset.kind = kind;
+    if ($("statusText").textContent !== text) $("statusText").textContent = text;
+    $("statusDetail").textContent = detail ? "(" + detail + ")" : "";
+    $("retry").hidden = sessionEnded || isOpen();
+  }
+
+  function sendJson(obj) {
+    if (isOpen()) ws.send(JSON.stringify(obj));
+  }
+  function detachSocket() {
+    const sock = ws;
+    if (!sock) return;
+    sock.onopen = sock.onmessage = sock.onclose = null;
+    try { sock.close(); } catch {}
+  }
+  function endSession() {
+    sessionEnded = true;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    reconnectAt = 0;
+    stopPingLoop();
+    detachSocket();
+    ws = null;
+    document.body.classList.add("ended");
+    holding = false;
+    locked = false;
+    $("lock").checked = false;
+    renderStatus();
+    refreshTalk();
+    if (listening) stopListening();
+  }
+
+  // The server may have restarted or the session may be gone: a failed
+  // websocket alone can't tell us, so ask the page URL (404 = session ended).
+  async function checkSessionAlive() {
+    try {
+      const res = await fetch(base, { method: "HEAD", cache: "no-store" });
+      if (res.status === 404) endSession();
+    } catch {}
+  }
+
+  function scheduleReconnect() {
+    clearTimeout(reconnectTimer);
+    retries++;
+    const delay = Math.min(1500 * 2 ** Math.min(retries - 1, 4), 15000);
+    reconnectAt = Date.now() + delay;
+    reconnectTimer = setTimeout(connect, delay);
+    renderStatus();
+  }
+  function reconnectNow() {
+    if (sessionEnded || isOpen()) return;
+    if (ws && ws.readyState === WebSocket.CONNECTING) return;
+    connect();
+  }
+  function handleSocketClosed(code) {
+    ws = null;
+    stopPingLoop();
+    wasSending = false;
+    if (sessionEnded) return;
+    if (code === 4000) { endSession(); return; }
+    scheduleReconnect();
+    refreshTalk();
+    checkSessionAlive();
+  }
+  // A socket that dies silently (phone lock, wifi drop) can take minutes to
+  // report "close". If a ping goes unanswered, give up on it ourselves.
+  function dropDeadSocket() {
+    if (!ws) return;
+    detachSocket();
+    handleSocketClosed(1006);
+  }
+
+  function connect() {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    reconnectAt = 0;
+    if (sessionEnded) return;
+    if (ws && ws.readyState <= WebSocket.OPEN) return;
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const sock = new WebSocket(proto + "://" + location.host + base + "/ws");
+    sock.binaryType = "arraybuffer";
+    ws = sock;
+    renderStatus();
+    sock.onopen = () => {
+      if (ws !== sock) return;
+      retries = 0;
+      everConnected = true;
+      if (listening) sendJson({ type: "listen", value: true });
+      startPingLoop();
+      renderStatus();
+      refreshTalk();
+    };
+    sock.onmessage = (ev) => {
+      if (ws !== sock) return;
+      if (typeof ev.data !== "string") {
+        if (listening && listenNode) listenNode.port.postMessage(ev.data, [ev.data]);
+        return;
+      }
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+      if (msg.type === "state") renderState(msg);
+      else if (msg.type === "notice") toast(msg.message);
+      else if (msg.type === "speakers") renderSpeakers(msg.names);
+      else if (msg.type === "pong") { awaitingPongSince = 0; updateLatencyUI(Date.now() - msg.value); }
+    };
+    sock.onclose = (ev) => {
+      if (ws !== sock) return;
+      handleSocketClosed(ev.code);
+    };
+  }
+
+  window.addEventListener("online", () => { renderStatus(); reconnectNow(); });
+  window.addEventListener("offline", renderStatus);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || sessionEnded) return;
+    if (isOpen()) pingTick(); else reconnectNow();
+  });
+  $("retry").addEventListener("click", reconnectNow);
+  setInterval(() => { if (!sessionEnded && !isOpen()) renderStatus(); }, 1000);
+
+  const BUFFER_MS = 160;
+  const latencyEl = $("latency");
+  const lagEl = $("lag");
+  let pingTimer = null;
+  let lastRtt = null;
+
+  function classifyLatency(ms) {
+    if (ms < 150) return "good";
+    if (ms < 350) return "mid";
+    return "bad";
+  }
+  function renderLatency() {
+    if (lastRtt == null) { latencyEl.hidden = true; lagEl.hidden = true; return; }
+    latencyEl.hidden = false;
+    latencyEl.textContent = Math.round(lastRtt) + " ms";
+    latencyEl.className = "lat " + classifyLatency(lastRtt);
+    if (listening) {
+      lagEl.hidden = false;
+      lagEl.textContent = "~" + Math.round(lastRtt / 2 + BUFFER_MS) + " ms behind live";
+    } else {
+      lagEl.hidden = true;
+    }
+  }
+  function updateLatencyUI(rtt) {
+    lastRtt = rtt;
+    renderLatency();
+  }
+  function pingTick() {
+    const now = Date.now();
+    if (awaitingPongSince && now - awaitingPongSince > PONG_TIMEOUT_MS) { dropDeadSocket(); return; }
+    if (!awaitingPongSince) awaitingPongSince = now;
+    sendJson({ type: "ping", value: now });
+  }
+  function startPingLoop() {
+    stopPingLoop();
+    pingTick();
+    pingTimer = setInterval(pingTick, 3000);
+  }
+  function stopPingLoop() {
+    if (pingTimer) clearInterval(pingTimer);
+    pingTimer = null;
+    awaitingPongSince = 0;
+    lastRtt = null;
+    renderLatency();
+  }
+
+  function renderState(s) {
+    const prevLink = link;
+    link = s.connection || "ready";
+    if (link !== prevLink) { renderStatus(); refreshTalk(); }
+    $("channel").textContent = s.channelName;
+    $("now").textContent = s.nowPlaying || "Nothing playing";
+    const items = s.queue.map((name) => {
+      const li = document.createElement("li");
+      li.className = "name";
+      li.textContent = name;
+      return li;
+    });
+    $("queue").replaceChildren(...items);
+    if (document.activeElement !== $("volume")) $("volume").value = Math.round(s.musicVolume * 100);
+  }
+  $("skip").addEventListener("click", () => sendJson({ type: "skip" }));
+  $("stop").addEventListener("click", () => sendJson({ type: "stop" }));
+  $("volume").addEventListener("input", (e) => sendJson({ type: "volume", value: Number(e.target.value) / 100 }));
+
+  const WORKLET = `
+    class PcmSender extends AudioWorkletProcessor {
+      constructor() { super(); this.buf = new Int16Array(960); this.n = 0; }
+      process(inputs) {
+        const ch = inputs[0] && inputs[0][0];
+        if (!ch) return true;
+        for (let i = 0; i < ch.length; i++) {
+          const s = Math.max(-1, Math.min(1, ch[i]));
+          this.buf[this.n++] = s < 0 ? s * 32768 : s * 32767;
+          if (this.n === this.buf.length) {
+            const out = this.buf.slice();
+            this.port.postMessage(out.buffer, [out.buffer]);
+            this.n = 0;
+          }
+        }
+        return true;
+      }
+    }
+    registerProcessor("pcm-sender", PcmSender);
+  `;
+
+  const talkBtn = $("talk");
+  const meterEl = $("meter");
+  const SEGMENTS = 16;
+  for (let i = 0; i < SEGMENTS; i++) meterEl.appendChild(document.createElement("span"));
+  const segs = [...meterEl.children];
+
+  let micReady = false;
+  let holding = false;
+  let locked = false;
+  let wasSending = false;
+  let level = 0;
+
+  const isTalking = () => micReady && canTalk() && (holding || locked);
+
+  function refreshTalk() {
+    const on = isTalking();
+    talkBtn.classList.toggle("live", on);
+    talkBtn.setAttribute("aria-pressed", String(on));
+    $("lamp").dataset.on = String(on);
+    const ready = canTalk();
+    $("lampText").textContent = !micReady ? "Mic off" : !ready ? "Not connected" : on ? "On air" : "Muted";
+    if (micReady) talkBtn.textContent = sessionEnded ? "Session ended" : !ready ? "Reconnecting…" : on ? "Talking…" : "Hold to talk";
+  }
+
+  function onChunk(buffer) {
+    const samples = new Int16Array(buffer);
+    let peak = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const v = Math.abs(samples[i]);
+      if (v > peak) peak = v;
+    }
+    level = Math.max(peak / 32768, level * 0.85);
+
+    const canSend = isOpen() && ws.bufferedAmount < 256 * 1024;
+    if (isTalking() && canSend) {
+      ws.send(buffer);
+      wasSending = true;
+    } else if (wasSending) {
+      sendJson({ type: "mic-end" });
+      wasSending = false;
+    }
+  }
+
+  function drawMeter() {
+    const lit = Math.round(Math.min(1, level * 2.5) * SEGMENTS);
+    segs.forEach((el, i) => {
+      el.classList.toggle("on", i < lit);
+      el.classList.toggle("hot", i >= SEGMENTS - 3);
+    });
+    requestAnimationFrame(drawMeter);
+  }
+
+  async function startMic() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast("Microphone access needs a secure page (https). Ask the bot owner to serve this page over https.");
+      return;
+    }
+    talkBtn.disabled = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      const ctx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
+      if (ctx.sampleRate !== 48000) {
+        stream.getTracks().forEach((t) => t.stop());
+        ctx.close();
+        toast("This browser can't capture 48 kHz audio. Try Chrome, Edge or Firefox.");
+        talkBtn.disabled = false;
+        return;
+      }
+      const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
+      await ctx.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+
+      const source = ctx.createMediaStreamSource(stream);
+      const node = new AudioWorkletNode(ctx, "pcm-sender", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        channelCount: 1,
+        channelCountMode: "explicit",
+        outputChannelCount: [1],
+      });
+      const silent = ctx.createGain();
+      silent.gain.value = 0;
+      source.connect(node);
+      node.connect(silent);
+      silent.connect(ctx.destination);
+      node.port.onmessage = (e) => onChunk(e.data);
+
+      micReady = true;
+      $("lockWrap").hidden = false;
+      $("hint").innerHTML = "Hold the button or the <kbd>Space</kbd> bar while you speak. Everything you say plays in the voice channel.";
+      drawMeter();
+    } catch (err) {
+      const denied = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
+      toast(denied ? "Microphone access was blocked. Allow it in your browser's site settings and try again." : "Couldn't start the microphone: " + (err && err.message));
+    }
+    talkBtn.disabled = false;
+    refreshTalk();
+  }
+
+  talkBtn.addEventListener("click", () => { if (!micReady) startMic(); });
+  talkBtn.addEventListener("pointerdown", (e) => {
+    if (!micReady) return;
+    e.preventDefault();
+    talkBtn.setPointerCapture(e.pointerId);
+    holding = true;
+    refreshTalk();
+  });
+  const release = () => { holding = false; refreshTalk(); };
+  talkBtn.addEventListener("pointerup", release);
+  talkBtn.addEventListener("pointercancel", release);
+  talkBtn.addEventListener("contextmenu", (e) => e.preventDefault());
+  window.addEventListener("blur", release);
+
+  $("lock").addEventListener("change", (e) => { locked = e.target.checked; refreshTalk(); });
+
+  function typingTarget(el) {
+    return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+  }
+  window.addEventListener("keydown", (e) => {
+    if (e.code !== "Space" || typingTarget(e.target) || !micReady) return;
+    e.preventDefault();
+    if (!e.repeat) { holding = true; refreshTalk(); }
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.code !== "Space" || typingTarget(e.target) || !micReady) return;
+    e.preventDefault();
+    release();
+  });
+
+  const PLAYER = `
+    class PcmPlayer extends AudioWorkletProcessor {
+      constructor() {
+        super();
+        this.queue = [];
+        this.offset = 0;
+        this.buffered = 0;
+        this.playing = false;
+        this.port.onmessage = (e) => {
+          const i16 = new Int16Array(e.data);
+          const f32 = new Float32Array(i16.length);
+          for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+          this.queue.push(f32);
+          this.buffered += f32.length;
+          // Never lag more than ~400 ms behind: drop the oldest audio.
+          while (this.buffered > 19200 && this.queue.length > 1) {
+            this.buffered -= this.queue[0].length - this.offset;
+            this.queue.shift();
+            this.offset = 0;
+          }
+        };
+      }
+      process(inputs, outputs) {
+        const channels = outputs[0];
+        const out = channels[0];
+        if (!this.playing) {
+          if (this.buffered < 4800) return true; // wait for ~100 ms of jitter buffer
+          this.playing = true;
+        }
+        for (let i = 0; i < out.length; i++) {
+          if (!this.queue.length) { this.playing = false; break; }
+          const head = this.queue[0];
+          out[i] = head[this.offset++];
+          this.buffered--;
+          if (this.offset >= head.length) { this.queue.shift(); this.offset = 0; }
+        }
+        for (let c = 1; c < channels.length; c++) channels[c].set(out);
+        return true;
+      }
+    }
+    registerProcessor("pcm-player", PcmPlayer);
+  `;
+
+  let listening = false;
+  let listenCtx = null;
+  let listenNode = null;
+  let listenGain = null;
+  const listenBtn = $("listen");
+
+  function renderSpeakers(names) {
+    const el = $("speakers");
+    if (!listening) { el.textContent = "Not listening"; el.classList.remove("active"); return; }
+    if (!names || names.length === 0) { el.textContent = "Nobody is speaking"; el.classList.remove("active"); return; }
+    el.textContent = names.join(", ") + (names.length > 1 ? " are speaking" : " is speaking");
+    el.classList.add("active");
+  }
+
+  async function startListening() {
+    listenBtn.disabled = true;
+    try {
+      if (!listenCtx) {
+        const ctx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
+        if (ctx.sampleRate !== 48000) {
+          ctx.close();
+          toast("This browser can't play 48 kHz audio. Try Chrome, Edge or Firefox.");
+          listenBtn.disabled = false;
+          return;
+        }
+        const url = URL.createObjectURL(new Blob([PLAYER], { type: "text/javascript" }));
+        await ctx.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        listenNode = new AudioWorkletNode(ctx, "pcm-player", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+        listenGain = ctx.createGain();
+        listenGain.gain.value = Number($("listenVol").value) / 100;
+        listenNode.connect(listenGain);
+        listenGain.connect(ctx.destination);
+        listenCtx = ctx;
+      }
+      await listenCtx.resume();
+      listening = true;
+      sendJson({ type: "listen", value: true });
+      listenBtn.textContent = "Stop listening";
+      listenBtn.setAttribute("aria-pressed", "true");
+      renderSpeakers([]);
+      renderLatency();
+    } catch (err) {
+      toast("Couldn't start audio playback: " + (err && err.message));
+    }
+    listenBtn.disabled = false;
+  }
+
+  function stopListening() {
+    listening = false;
+    sendJson({ type: "listen", value: false });
+    if (listenCtx) listenCtx.suspend();
+    listenBtn.textContent = "Start listening";
+    listenBtn.setAttribute("aria-pressed", "false");
+    renderSpeakers([]);
+    renderLatency();
+  }
+
+  listenBtn.addEventListener("click", () => { if (listening) stopListening(); else startListening(); });
+  $("listenVol").addEventListener("input", (e) => { if (listenGain) listenGain.gain.value = Number(e.target.value) / 100; });
+
+  const dropEl = $("drop");
+  const fileInput = $("file");
+
+  function addUploadRow(name) {
+    const li = document.createElement("li");
+    const label = document.createElement("span");
+    label.className = "name";
+    label.textContent = name;
+    const msg = document.createElement("span");
+    msg.className = "msg";
+    msg.textContent = "Uploading…";
+    const bar = document.createElement("progress");
+    bar.max = 1;
+    bar.value = 0;
+    li.append(label, msg, bar);
+    $("uploads").prepend(li);
+    return {
+      progress: (v) => { bar.value = v; },
+      finish: (ok, text) => {
+        bar.remove();
+        msg.textContent = text;
+        msg.classList.toggle("err", !ok);
+        if (ok) setTimeout(() => li.remove(), 4000);
+      },
+    };
+  }
+
+  function uploadFile(file) {
+    const row = addUploadRow(file.name);
+    return new Promise((resolve) => {
+      if (file.size > MAX_MB * 1024 * 1024) {
+        row.finish(false, "Over " + MAX_MB + " MB");
+        resolve();
+        return;
+      }
+      if (!canTalk()) {
+        row.finish(false, "Not connected. Try again once you're back online.");
+        resolve();
+        return;
+      }
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", base + "/upload");
+      xhr.setRequestHeader("X-File-Name", encodeURIComponent(file.name));
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) row.progress(e.loaded / e.total); };
+      xhr.onload = () => {
+        let error = "Upload failed (" + xhr.status + ")";
+        try { error = JSON.parse(xhr.responseText).error || error; } catch {}
+        if (xhr.status === 200) row.finish(true, "Queued");
+        else row.finish(false, error);
+        resolve();
+      };
+      xhr.onerror = () => { row.finish(false, "Network error"); resolve(); };
+      xhr.send(file);
+    });
+  }
+
+  async function uploadAll(files) {
+    for (const file of files) await uploadFile(file);
+  }
+
+  fileInput.addEventListener("change", () => { uploadAll([...fileInput.files]); fileInput.value = ""; });
+  ["dragenter", "dragover"].forEach((t) => dropEl.addEventListener(t, (e) => { e.preventDefault(); dropEl.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((t) => dropEl.addEventListener(t, (e) => { e.preventDefault(); dropEl.classList.remove("over"); }));
+  dropEl.addEventListener("drop", (e) => uploadAll([...e.dataTransfer.files]));
+
+  refreshTalk();
+  connect();
+})();
+</script>
+</body>
+</html>

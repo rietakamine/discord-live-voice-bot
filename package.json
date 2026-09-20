@@ -1,0 +1,31 @@
+{
+  "name": "discord-live-voice",
+  "version": "1.0.0",
+  "description": "Discord bot (TypeScript + discord.js + MongoDB)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && ts-node scripts/copy-assets.ts",
+    "postinstall": "npm run build && npm run deploy-commands",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "deploy-commands": "ts-node scripts/deploy-commands.ts"
+  },
+  "dependencies": {
+    "@discordjs/voice": "^0.19.2",
+    "discord.js": "^14.15.3",
+    "express": "^4.19.2",
+    "ffmpeg-static": "^5.3.0",
+    "libsodium-wrappers": "^0.8.4",
+    "mongoose": "^8.5.1",
+    "opusscript": "^0.0.8",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.13",
+    "@types/ws": "^8.18.1",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.5.4"
+  }
+}

@@ -1,4 +1,4 @@
-# zlive-voice-bot (TypeScript + discord.js + MongoDB)
+# discord-voice-bot (TypeScript + discord.js)
 
 A Discord bot that bridges a voice channel to a web page — anyone with the
 link can speak into (and play audio files into) the channel through the
